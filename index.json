@@ -3,31 +3,18 @@
   "name": "questionbluddy42's Plugins",
   "description": "Small plugins for Valenced.",
   "plugins": {
-    "com.amoggoamogger.no-reply-ping": {
+    "com.questionbluddy42.no-reply-ping": {
       "name": "No Reply Ping",
       "description": "Replies don't ping the person by default. Turn the ping on per reply with the @ button.",
       "author": "questionbluddy42",
       "channels": {
-        "latest": "1.0.1"
+        "latest": "1.0.0"
       },
       "versions": {
         "1.0.0": {
-          "url": "https://questionbluddy42.github.io/test/pool/com.amoggoamogger.no-reply-ping@1.0.0.zip",
-          "sha256": "4fec9af2db7e7dfae81c5b9bfcb9b2c415bab74b1112b2df7b2c97ae6fa1613a",
-          "size": 659,
-          "dependencies": {
-            "valenced.api": {
-              "version": ">=1 <2"
-            },
-            "discord": {
-              "version": "*"
-            }
-          }
-        },
-        "1.0.1": {
-          "url": "https://questionbluddy42.github.io/test/pool/com.amoggoamogger.no-reply-ping@1.0.1.zip",
-          "sha256": "db3ea537bf1a94c58b5955074fceccadc782a111c012000ebbe92ed12cd85b4a",
-          "size": 668,
+          "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.no-reply-ping@1.0.0.zip",
+          "sha256": "41d1e02f6312ede7d59ec6962986496c012eb9f757c238d9d5eb8f601affc330",
+          "size": 663,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"
