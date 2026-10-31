@@ -3,6 +3,29 @@
   "name": "questionbluddy42's Plugins",
   "description": "Small plugins for Valenced.",
   "plugins": {
+    "com.questionbluddy42.hide-edited": {
+      "name": "Hide Edited",
+      "description": "Hides the \"(edited)\" label on messages.",
+      "author": "questionbluddy42",
+      "channels": {
+        "latest": "1.0.0"
+      },
+      "versions": {
+        "1.0.0": {
+          "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.hide-edited@1.0.0.zip",
+          "sha256": "2409f6fb00727f66077157384af2d9a7ec9a63b6f2dfc3ee0528492ff18dbec1",
+          "size": 847,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        }
+      }
+    },
     "com.questionbluddy42.no-delete-confirm": {
       "name": "No Delete Confirm",
       "description": "Deleting a message skips the \"Are you sure?\" popup and deletes it straight away.",
