@@ -119,13 +119,26 @@
       "description": "Temporary. Finds how mentions are drawn and copies a report to the clipboard.",
       "author": "questionbluddy42",
       "channels": {
-        "latest": "0.1.0"
+        "latest": "0.2.0"
       },
       "versions": {
         "0.1.0": {
           "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.role-colors-probe@0.1.0.zip",
           "sha256": "cc36adde0952211094eb8df7532999b9259207607b1dfa6acb77de251bf0cae1",
           "size": 1481,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "0.2.0": {
+          "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.role-colors-probe@0.2.0.zip",
+          "sha256": "e8dafb3c64d632270b476160297aa10a140ee175e7db9f446643988e860f9a73",
+          "size": 1570,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"
