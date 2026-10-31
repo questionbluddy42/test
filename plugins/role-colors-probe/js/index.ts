@@ -1,6 +1,6 @@
 import { ToastActionCreators } from '@valenced/discord/actions'
 import { Clipboard } from '@valenced/externals/react-native-clipboard'
-import { getModules } from '@valenced/modules/finders'
+import { waitForModules } from '@valenced/modules/finders'
 import { withProps } from '@valenced/modules/finders/filters'
 import { instead } from '@valenced/patcher'
 
@@ -69,35 +69,45 @@ function add(key: string, text: string) {
 
 // Records the first few calls of one function: its arguments and what it returned.
 function spy(target: Record<string, unknown>, name: string) {
-	instead(target as never, name as never, ((args: unknown[], original: Fn) => {
-		const result = original(...args)
+	const descriptor = Object.getOwnPropertyDescriptor(target, name)
+	add(
+		`status ${name}`,
+		`module found | descriptor: ${descriptor ? `configurable=${descriptor.configurable} writable=${descriptor.writable} getter=${typeof descriptor.get}` : 'none (inherited)'}`,
+	)
 
-		try {
-			const seen = counts.get(name) ?? 0
-			if (seen < 2) {
-				counts.set(name, seen + 1)
-				add(
-					`${name} call ${seen + 1}`,
-					`args: ${args.map(arg => shape(arg, 3)).join(' | ')}\nresult: ${shape(result, 3)}`,
-				)
-			}
-		} catch {}
+	try {
+		instead(target as never, name as never, ((args: unknown[], original: Fn) => {
+			const result = original(...args)
 
-		return result
-	}) as never)
+			try {
+				const seen = counts.get(name) ?? 0
+				if (seen < 2) {
+					counts.set(name, seen + 1)
+					add(
+						`${name} call ${seen + 1}`,
+						`args: ${args.map(arg => shape(arg, 3)).join(' | ')}\nresult: ${shape(result, 3)}`,
+					)
+				}
+			} catch {}
+
+			return result
+		}) as never)
+	} catch (error) {
+		add(`status ${name} patch error`, String(error))
+	}
 }
 
 export default plugin({
-	start({ cleanup }) {
-		const watched = [
-			['hydrateUserMention', 'hydrateUserMention'],
-			['plainMentionRenderer', 'plainMentionRenderer'],
-		] as const
+	// Runs early, so the functions are patched before Discord's other code copies them.
+	preInit({ cleanup }) {
+		add('status', 'probe loaded in preInit')
 
-		for (const [prop, name] of watched) {
+		const watched = ['hydrateUserMention', 'plainMentionRenderer']
+
+		for (const name of watched) {
 			cleanup(
-				getModules(withProps<Record<string, unknown>>(prop), exports => {
-					if (typeof exports[prop] === 'function') spy(exports, name)
+				waitForModules(withProps<Record<string, unknown>>(name), exports => {
+					if (typeof exports[name] === 'function') spy(exports, name)
 				}),
 			)
 		}

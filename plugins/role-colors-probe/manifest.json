@@ -4,7 +4,7 @@
 	"name": "Role Colors Probe",
 	"description": "Temporary. Records what Discord's mention functions receive and return.",
 	"author": "questionbluddy42",
-	"version": "0.4.0",
+	"version": "0.5.0",
 	"dependencies": {
 		"valenced.api": {
 			"version": ">=1 <2"
