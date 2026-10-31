@@ -1,7 +1,7 @@
 import { ToastActionCreators } from '@valenced/discord/actions'
 import { Clipboard } from '@valenced/externals/react-native-clipboard'
 import { instead } from '@valenced/patcher'
-import { ReactJSXRuntime } from '@valenced/react'
+import { React, ReactJSXRuntime } from '@valenced/react'
 
 // Temporary probe: finds how mentions are drawn, then copies a report to the clipboard.
 
@@ -97,22 +97,25 @@ function add(key: string, text: string) {
 	}, 6000)
 }
 
-function watch(type: unknown, props: unknown) {
+let createElementCalls = 0
+
+// children is given for createElement, where they are not inside props.
+function watch(type: unknown, props: unknown, children?: unknown) {
 	try {
-		if (!props || typeof props !== 'object') return
-		const p = props as Props
+		const p = (props && typeof props === 'object' ? props : {}) as Props
+		const content = children !== undefined ? children : p.children
 
 		// Components that are handed a user or role id.
 		if (p.userId !== undefined || p.roleId !== undefined) {
 			const name = typeName(type)
-			add(`id <${name}>`, `${describe(p)} text=${label(textOf(p.children))}`)
+			add(`id <${name}>`, `${describe(p)} text=${label(textOf(content))}`)
 		}
 
 		// Elements whose text starts with @.
-		const first = textOf(p.children)
+		const first = textOf(content)
 		if (typeof first === 'string' && first.startsWith('@')) {
 			const name = typeName(type)
-			add(`@text <${name}>`, `${describe(p)} children=[${childrenSummary(p.children)}]`)
+			add(`@text <${name}>${children !== undefined ? ' (createElement)' : ''}`, `${describe(p)} children=[${childrenSummary(content)}]`)
 		}
 	} catch {}
 }
@@ -128,6 +131,15 @@ export default plugin({
 		cleanup(
 			instead(ReactJSXRuntime, 'jsxs', (args, original) => {
 				watch(args[0], args[1])
+				return original(...args)
+			}),
+		)
+		cleanup(
+			instead(React, 'createElement', (args, original) => {
+				createElementCalls++
+				if (createElementCalls === 1) add('createElement used', 'yes')
+				const [type, props, ...rest] = args as unknown as [unknown, unknown, ...unknown[]]
+				watch(type, props, rest.length > 1 ? rest : rest[0])
 				return original(...args)
 			}),
 		)
