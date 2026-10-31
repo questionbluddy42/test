@@ -116,16 +116,29 @@
     },
     "com.questionbluddy42.role-colors-probe": {
       "name": "Role Colors Probe",
-      "description": "Temporary. Searches Discord's code for mention pieces and copies a report to the clipboard.",
+      "description": "Temporary. Records what Discord's mention functions receive and return.",
       "author": "questionbluddy42",
       "channels": {
-        "latest": "0.3.0"
+        "latest": "0.4.0"
       },
       "versions": {
         "0.3.0": {
           "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.role-colors-probe@0.3.0.zip",
           "sha256": "e964b22b736d4f43472b380d5fe95bb149a614f1e87074b9b32d7e4e444081cd",
           "size": 1193,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "0.4.0": {
+          "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.role-colors-probe@0.4.0.zip",
+          "sha256": "1f4ee836b7bc4e4f568e6d4000d13f3f1954d1ff256cfad982c4ccc37cd4b93c",
+          "size": 1353,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"
