@@ -119,7 +119,7 @@
       "description": "Temporary. Records what Discord's mention functions receive and return.",
       "author": "questionbluddy42",
       "channels": {
-        "latest": "0.4.0"
+        "latest": "0.5.0"
       },
       "versions": {
         "0.3.0": {
@@ -139,6 +139,19 @@
           "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.role-colors-probe@0.4.0.zip",
           "sha256": "1f4ee836b7bc4e4f568e6d4000d13f3f1954d1ff256cfad982c4ccc37cd4b93c",
           "size": 1353,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "0.5.0": {
+          "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.role-colors-probe@0.5.0.zip",
+          "sha256": "46719cd78dff1114c3e26a8919193c363a4b41840a3fb8297257c98e4ca8df1d",
+          "size": 1473,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"
