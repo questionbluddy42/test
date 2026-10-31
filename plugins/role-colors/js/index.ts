@@ -1,8 +1,11 @@
 import { ToastActionCreators } from '@valenced/discord/actions'
 import { Stores } from '@valenced/discord/flux'
 import { Clipboard } from '@valenced/externals/react-native-clipboard'
-import { before, instead } from '@valenced/patcher'
-import { ReactJSXRuntime, ReactNative } from '@valenced/react'
+import { getModules } from '@valenced/modules/finders'
+import { withName } from '@valenced/modules/finders/filters'
+import { getNativeModule } from '@valenced/modules/native'
+import { after, before, instead } from '@valenced/patcher'
+import { ReactJSXRuntime } from '@valenced/react'
 import { insteadJSX } from '@valenced/react/jsx-runtime'
 
 // Colors names in the typing indicator and mentions in messages with each person's role color.
@@ -156,9 +159,11 @@ interface ChannelStore {
 
 // Temporary diagnostics, removed once mentions work. Copies one report to the clipboard.
 const diag = {
-	manager: 'not checked',
-	updateRows: 'not checked',
-	nativeKeys: '',
+	routes: [] as string[],
+	proxyKeys: '',
+	generateCalls: 0,
+	firstRow: '',
+	rowManagerCallback: false,
 	channelStore: '',
 	calls: 0,
 	firstArgs: '',
@@ -184,12 +189,13 @@ function toast(text: string) {
 
 function flushDiag() {
 	const lines = [
-		'role colors 1.1.1',
-		`DCDChatManager: ${diag.manager} | updateRows: ${diag.updateRows}`,
-		`native modules like chat: ${diag.nativeKeys}`,
+		'role colors 1.1.2',
+		...diag.routes.map(route => `route: ${route}`),
+		`RowManager callback fired: ${diag.rowManagerCallback}`,
+		`native proxy keys like chat: ${diag.proxyKeys}`,
 		`ChannelStore: ${diag.channelStore}`,
-		`updateRows calls: ${diag.calls}`,
-		`first call args: ${diag.firstArgs}`,
+		`updateRows calls: ${diag.calls} | first call args: ${diag.firstArgs}`,
+		`RowManager.generate calls: ${diag.generateCalls} | first row keys: ${diag.firstRow}`,
 		`rows: ${diag.rows} (no guild: ${diag.rowsNoGuild})`,
 		`mentions: ${diag.mentions} (colored: ${diag.colored})`,
 		`component types: ${[...diag.types].join(',')}`,
@@ -260,47 +266,78 @@ function colorRow(row: unknown) {
 	}
 }
 
-// Discord's chat list is drawn natively and gets its rows as JSON.
-// Editing that JSON before it is sent is the only place mentions can be colored.
+// Discord's chat list is drawn natively. Its rows are built or sent as data before they reach the screen.
+// Editing that data is the only place mentions can be colored. Two routes exist, so both are tried.
 function patchMentions(cleanup: (callback: () => unknown) => unknown) {
-	const modules = (ReactNative as unknown as { NativeModules?: Record<string, unknown> }).NativeModules
-	const manager = modules?.DCDChatManager as Record<string, unknown> | undefined
-
-	diag.manager = manager ? 'found' : 'MISSING'
-	diag.updateRows = typeof manager?.updateRows
-	diag.channelStore = typeof Stores.ChannelStore
-	try {
-		diag.nativeKeys = Object.keys(modules ?? {})
-			.filter(key => /chat|row|dcd|message/i.test(key))
-			.join(',')
-	} catch {}
-
 	scheduleDiag(12000)
 	cleanup(() => {
 		if (diagTimer) clearTimeout(diagTimer)
 	})
 
-	if (!manager || typeof manager.updateRows !== 'function') return
+	diag.channelStore = typeof Stores.ChannelStore
 
+	try {
+		const proxy = (globalThis as unknown as Record<string, unknown>).nativeModuleProxy as Record<string, unknown> | undefined
+		diag.proxyKeys = Object.keys(proxy ?? {})
+			.filter(key => /chat|row|dcd|message|list/i.test(key))
+			.join(',')
+	} catch {}
+
+	// Route 1: rows sent to the native chat module as JSON.
+	try {
+		const manager = getNativeModule<Record<string, unknown>>('DCDChatManager')
+		diag.routes.push(`getNativeModule: ${manager ? 'found' : 'null'}, updateRows: ${typeof manager?.updateRows}`)
+
+		if (manager && typeof manager.updateRows === 'function') {
+			cleanup(
+				before(manager as never, 'updateRows' as never, ((args: unknown[]) => {
+					try {
+						diag.calls++
+						if (diag.calls === 1)
+							diag.firstArgs = `n=${args.length} ${args.map(arg => (typeof arg === 'string' ? `string(${arg.length})` : typeof arg)).join(',')}`
+						scheduleDiag(6000)
+
+						const rows = JSON.parse(args[1] as string)
+						if (!Array.isArray(rows)) return args
+
+						for (const row of rows) colorRow(row)
+						return [args[0], JSON.stringify(rows), ...args.slice(2)]
+					} catch (error) {
+						// Leave the rows as they are, so messages still load.
+						if (diag.errors.length < 3) diag.errors.push(String(error).slice(0, 120))
+						return args
+					}
+				}) as never),
+			)
+		}
+	} catch (error) {
+		diag.routes.push(`getNativeModule: ${String(error).slice(0, 90)}`)
+	}
+
+	// Route 2: the older row builder, which returns each row as data.
 	cleanup(
-		before(manager as never, 'updateRows' as never, ((args: unknown[]) => {
-			try {
-				diag.calls++
-				if (diag.calls === 1)
-					diag.firstArgs = `n=${args.length} ${args.map(arg => (typeof arg === 'string' ? `string(${arg.length})` : typeof arg)).join(',')}`
-				scheduleDiag(6000)
+		getModules(withName<any>('RowManager'), (exports: any) => {
+			diag.rowManagerCallback = true
+			const RowManager = exports?.prototype?.generate ? exports : exports?.default
+			diag.routes.push(`RowManager: found, generate: ${typeof RowManager?.prototype?.generate}`)
+			if (typeof RowManager?.prototype?.generate !== 'function') return
 
-				const rows = JSON.parse(args[1] as string)
-				if (!Array.isArray(rows)) return args
+			cleanup(
+				after(RowManager.prototype as never, 'generate' as never, ((row: unknown) => {
+					try {
+						diag.generateCalls++
+						if (diag.generateCalls === 1)
+							diag.firstRow = Object.keys((row ?? {}) as object).join(',')
+						scheduleDiag(6000)
+						colorRow(row)
+					} catch (error) {
+						if (diag.errors.length < 3) diag.errors.push(String(error).slice(0, 120))
+					}
 
-				for (const row of rows) colorRow(row)
-				return [args[0], JSON.stringify(rows), ...args.slice(2)]
-			} catch (error) {
-				// Leave the rows as they are, so messages still load.
-				if (diag.errors.length < 3) diag.errors.push(String(error).slice(0, 120))
-				return args
-			}
-		}) as never),
+					return row
+				}) as never),
+			)
+		}),
 	)
 }
 
