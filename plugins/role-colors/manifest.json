@@ -1,0 +1,19 @@
+{
+	"format": 1,
+	"id": "com.questionbluddy42.role-colors",
+	"name": "Role Colors",
+	"description": "Shows role colors on the typing indicator and on mentions.",
+	"author": "questionbluddy42",
+	"version": "0.1.0",
+	"dependencies": {
+		"valenced.api": {
+			"version": ">=1 <2"
+		},
+		"discord": {
+			"version": "*"
+		}
+	},
+	"dist": {
+		"script": "index.js"
+	}
+}
