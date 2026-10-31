@@ -3,6 +3,29 @@
   "name": "questionbluddy42's Plugins",
   "description": "Small plugins for Valenced.",
   "plugins": {
+    "com.questionbluddy42.no-delete-confirm": {
+      "name": "No Delete Confirm",
+      "description": "Deleting a message skips the \"Are you sure?\" popup and deletes it straight away.",
+      "author": "questionbluddy42",
+      "channels": {
+        "latest": "1.0.0"
+      },
+      "versions": {
+        "1.0.0": {
+          "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.no-delete-confirm@1.0.0.zip",
+          "sha256": "ec50635a6087f6e30b07011f4f91bace31c111f4c980e8fd5e19a55e4c28f4ef",
+          "size": 759,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        }
+      }
+    },
     "com.questionbluddy42.no-reply-ping": {
       "name": "No Reply Ping",
       "description": "Replies don't ping the person by default. Turn the ping on per reply with the @ button.",
