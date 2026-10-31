@@ -10,10 +10,6 @@ import { instead } from '@valenced/patcher'
 type Props = Record<string, unknown>
 type Fn = (...args: unknown[]) => unknown
 
-const WANTED = /mention|hydrate|colou?r/i
-const MENTION = /mention/i
-const ROLE_COLOR = /(role.*colou?r|member.*colou?r|colou?r.*role)/i
-
 const entries = new Map<string, string>()
 const calls = new Map<string, number>()
 const names = new WeakMap<object, string>()
@@ -137,25 +133,14 @@ function keysOf(exports: unknown): string[] {
 	return Object.keys(exports)
 }
 
-const withMentionKeys = createFilterGenerator<[]>(
-	(_, _id, exports) => {
+// Matches modules whose default export has the property.
+const withDefaultProp = createFilterGenerator<[name: string]>(
+	([name], _id, exports) => {
 		const fallback = (exports as { default?: unknown } | null)?.default
-		return [...keysOf(exports), ...keysOf(fallback)].some(key => MENTION.test(key) || ROLE_COLOR.test(key))
+		return !!fallback && (typeof fallback === 'object' || typeof fallback === 'function') && name in fallback
 	},
-	() => 'role-colors-probe.mention-modules',
+	([name]) => `role-colors-probe.default(${name})`,
 )
-
-function wrapModule(exports: unknown, id: number) {
-	const targets: Props[] = []
-	if (exports && (typeof exports === 'object' || typeof exports === 'function')) targets.push(exports as Props)
-
-	const fallback = (exports as { default?: unknown } | null)?.default
-	if (fallback && (typeof fallback === 'object' || typeof fallback === 'function')) targets.push(fallback as Props)
-
-	for (const target of targets)
-		for (const key of keysOf(target))
-			if (WANTED.test(key) && typeof target[key] === 'function') wrap(target, key, id)
-}
 
 // Records where text starting with @ is created, with a short call trail.
 function watch(type: unknown, props: unknown, children?: unknown) {
@@ -182,10 +167,34 @@ function watch(type: unknown, props: unknown, children?: unknown) {
 export default plugin({
 	// Runs early, so functions are patched before Discord's other code copies them.
 	preInit({ cleanup }) {
-		entries.set('status', 'probe 0.7 loaded in preInit')
+		entries.set('status', 'probe 0.8 loaded in preInit')
 		schedule()
 
-		cleanup(waitForModules(withMentionKeys(), (exports, id) => wrapModule(exports, id)))
+		// Only the functions that build or draw mentions. Autocomplete functions are left alone.
+		const topLevel = [
+			'hydrateUserMention',
+			'hydrateRoleMention',
+			'hydrateCommandMention',
+			'plainMentionRenderer',
+			'inlineChannelMentionReact',
+			'createFetchingGameMentionRule',
+		]
+
+		for (const name of topLevel) {
+			cleanup(
+				waitForModules(withProps<Record<string, unknown>>(name), (exports, id) => {
+					if (typeof exports[name] === 'function') wrap(exports, name, id)
+				}),
+			)
+		}
+
+		cleanup(
+			waitForModules(withDefaultProp('combineAndInjectMentionRule'), (exports, id) => {
+				const fallback = (exports as { default: Props }).default
+				if (typeof fallback.combineAndInjectMentionRule === 'function')
+					wrap(fallback, 'combineAndInjectMentionRule', id)
+			}),
+		)
 
 		cleanup(
 			waitForModules(withProps<Record<string, unknown>>('jsx', 'jsxs'), exports => {
