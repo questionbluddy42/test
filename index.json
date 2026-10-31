@@ -114,6 +114,29 @@
         }
       }
     },
+    "com.questionbluddy42.role-colors-probe": {
+      "name": "Role Colors Probe",
+      "description": "Temporary. Records which mention functions run, and where @ text is made.",
+      "author": "questionbluddy42",
+      "channels": {
+        "latest": "0.7.0"
+      },
+      "versions": {
+        "0.7.0": {
+          "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.role-colors-probe@0.7.0.zip",
+          "sha256": "fba1beaf16df38e60adb6c0207a0f49164f23cc61b7172f8986e32908be2f3f6",
+          "size": 2008,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        }
+      }
+    },
     "com.questionbluddy42.role-colors": {
       "name": "Role Colors",
       "description": "Colors names in the typing indicator with each person's role color.",
