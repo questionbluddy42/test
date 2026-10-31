@@ -1,10 +1,10 @@
 {
 	"format": 1,
-	"id": "com.amoggoamogger.no-reply-ping",
+	"id": "com.questionbluddy42.no-reply-ping",
 	"name": "No Reply Ping",
 	"description": "Replies don't ping the person by default. Turn the ping on per reply with the @ button.",
 	"author": "questionbluddy42",
-	"version": "1.0.1",
+	"version": "1.0.0",
 	"dependencies": {
 		"valenced.api": {
 			"version": ">=1 <2"
