@@ -1,36 +1,51 @@
 import { ToastActionCreators } from '@valenced/discord/actions'
 import { Clipboard } from '@valenced/externals/react-native-clipboard'
-import { lookupModules } from '@valenced/modules/finders'
-import { createFilterGenerator } from '@valenced/modules/finders/filters'
+import { getModules } from '@valenced/modules/finders'
+import { withProps } from '@valenced/modules/finders/filters'
+import { instead } from '@valenced/patcher'
 
-// Temporary probe: searches loaded Discord modules for mention and role color pieces.
-// Runs a few times after start, so modules that load later are found too.
+// Temporary probe: records what Discord's mention functions receive and return.
 
-const MENTION = /mention/i
-const ROLE_COLOR = /(role.*colou?r|member.*colou?r|colou?r.*role)/i
-const MAX_LINES = 60
-const SCAN_TIMES = [15000, 45000, 90000]
+type Fn = (...args: unknown[]) => unknown
 
-const found = new Map<number, string>()
-const timers: ReturnType<typeof setTimeout>[] = []
+const report = new Map<string, string>()
+const counts = new Map<string, number>()
+let timer: ReturnType<typeof setTimeout> | undefined
 
-function keysOf(exports: unknown): string[] {
-	if (!exports || (typeof exports !== 'object' && typeof exports !== 'function')) return []
-
-	const keys = new Set<string>()
-	for (const key of Object.keys(exports)) keys.add(key)
-
-	const fallback = (exports as { default?: unknown }).default
-	if (fallback && (typeof fallback === 'object' || typeof fallback === 'function'))
-		for (const key of Object.keys(fallback)) keys.add(`default.${key}`)
-
-	return [...keys]
+function label(value: unknown): string {
+	if (typeof value === 'function') return 'fn'
+	if (typeof value === 'string') return `'${value.slice(0, 24)}'`
+	if (Array.isArray(value)) return `arr${value.length}`
+	if (value && typeof value === 'object') return 'obj'
+	return String(value)
 }
 
-const withMentionKeys = createFilterGenerator<[]>(
-	(_, _id, exports) => keysOf(exports).some(key => MENTION.test(key) || ROLE_COLOR.test(key)),
-	() => 'role-colors-probe.scan',
-)
+// Short text for a value, going a few levels into objects.
+function shape(value: unknown, depth: number): string {
+	if (depth <= 0 || !value || typeof value !== 'object') return label(value)
+
+	if (Array.isArray(value)) {
+		const first = value.slice(0, 3).map(item => shape(item, depth - 1))
+		return `[${first.join(', ')}${value.length > 3 ? `, ...${value.length}` : ''}]`
+	}
+
+	if ('$$typeof' in value && 'props' in value) {
+		const element = value as { type?: unknown; props?: Record<string, unknown> }
+		const type = element.type as { displayName?: string; name?: string } | string | undefined
+		const name = typeof type === 'string' ? type : type?.displayName || type?.name || '?'
+		const props = element.props ?? {}
+		const items = Object.keys(props)
+			.slice(0, 10)
+			.map(key => `${key}:${key === 'children' ? shape(props[key], depth - 1) : label(props[key])}`)
+		return `<${name} ${items.join(' ')}>`
+	}
+
+	const record = value as Record<string, unknown>
+	const items = Object.keys(record)
+		.slice(0, 14)
+		.map(key => `${key}:${shape(record[key], depth - 1)}`)
+	return `{${items.join(', ')}}`
+}
 
 function toast(text: string) {
 	try {
@@ -42,26 +57,53 @@ function toast(text: string) {
 	}
 }
 
-function scan() {
-	try {
-		for (const [exports, id] of lookupModules(withMentionKeys(), { cached: false })) {
-			if (found.has(id) || found.size >= MAX_LINES) continue
+function add(key: string, text: string) {
+	report.set(key, text)
 
-			const keys = keysOf(exports)
-			const hits = keys.filter(key => MENTION.test(key) || ROLE_COLOR.test(key))
-			found.set(id, `#${id}: ${hits.slice(0, 8).join(', ')} (${keys.length} keys)`)
-		}
-	} catch (error) {
-		found.set(-1, `scan error: ${String(error)}`)
-	}
+	if (timer) clearTimeout(timer)
+	timer = setTimeout(() => {
+		Clipboard.setString([...report.entries()].map(([k, v]) => `## ${k}\n${v}`).join('\n'))
+		toast(`Probe copied ${report.size} entries. Paste it in the chat.`)
+	}, 6000)
+}
 
-	Clipboard.setString([...found.values()].join('\n'))
-	toast(`Probe copied ${found.size} lines. Paste it in the chat.`)
+// Records the first few calls of one function: its arguments and what it returned.
+function spy(target: Record<string, unknown>, name: string) {
+	instead(target as never, name as never, ((args: unknown[], original: Fn) => {
+		const result = original(...args)
+
+		try {
+			const seen = counts.get(name) ?? 0
+			if (seen < 2) {
+				counts.set(name, seen + 1)
+				add(
+					`${name} call ${seen + 1}`,
+					`args: ${args.map(arg => shape(arg, 3)).join(' | ')}\nresult: ${shape(result, 3)}`,
+				)
+			}
+		} catch {}
+
+		return result
+	}) as never)
 }
 
 export default plugin({
 	start({ cleanup }) {
-		for (const delay of SCAN_TIMES) timers.push(setTimeout(scan, delay))
-		cleanup(() => timers.forEach(clearTimeout))
+		const watched = [
+			['hydrateUserMention', 'hydrateUserMention'],
+			['plainMentionRenderer', 'plainMentionRenderer'],
+		] as const
+
+		for (const [prop, name] of watched) {
+			cleanup(
+				getModules(withProps<Record<string, unknown>>(prop), exports => {
+					if (typeof exports[prop] === 'function') spy(exports, name)
+				}),
+			)
+		}
+
+		cleanup(() => {
+			if (timer) clearTimeout(timer)
+		})
 	},
 })
