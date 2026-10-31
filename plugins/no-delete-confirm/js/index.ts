@@ -1,4 +1,4 @@
-import { AlertActionCreators, ToastActionCreators } from '@valenced/discord/actions'
+import { AlertActionCreators } from '@valenced/discord/actions'
 import { instead } from '@valenced/patcher'
 
 type AlertProps = Record<string, unknown>
@@ -11,96 +11,60 @@ function isDeleteMessageAlert(key: string, props: AlertProps | undefined) {
 	return typeof title === 'string' && /^delete message\??$/i.test(title.trim())
 }
 
-// Finds the function that confirms the popup.
-function findConfirm(props: AlertProps | undefined) {
-	if (!props) return
-
-	for (const name of Object.keys(props)) {
-		const value = props[name]
-		if (typeof value === 'function' && /^on(confirm|accept|ok|yes|submit)/i.test(name))
-			return value as () => unknown
-	}
-
-	// Newer popups keep their buttons inside an actions object.
-	const actions = props.actions
-	if (!actions || typeof actions !== 'object') return
-
-	const entries = Object.entries(actions as Record<string, unknown>)
-	const primary =
-		entries.find(([name]) => /primary|confirm|accept|yes/i.test(name)) ?? entries[0]
-	const button = primary?.[1]
-	if (!button || typeof button !== 'object') return
-
-	for (const [name, value] of Object.entries(button as Record<string, unknown>)) {
-		if (typeof value === 'function' && /^on(press|click|confirm|accept|submit)/i.test(name))
-			return value as () => unknown
-	}
+// Debug: describes one value as short text.
+function label(value: unknown): string {
+	if (typeof value === 'function') return 'fn'
+	if (typeof value === 'string') return `'${value.slice(0, 16)}'`
+	if (Array.isArray(value)) return `arr${value.length}`
+	if (value && typeof value === 'object') return 'obj'
+	return String(value)
 }
 
-// Debug: describes every prop (and the actions object) as short text pieces.
-function describe(props: AlertProps) {
-	const parts: string[] = []
-	for (const name of Object.keys(props)) {
-		const value = props[name]
-		const type = typeof value === 'function' ? 'fn' : Array.isArray(value) ? 'arr' : typeof value
-		parts.push(`${name}:${type}`)
+function typeName(type: unknown): string {
+	if (typeof type === 'string') return type
+	if (type && (typeof type === 'function' || typeof type === 'object')) {
+		const named = type as { displayName?: string; name?: string }
+		return named.displayName || named.name || '?'
 	}
-
-	const actions = props.actions
-	if (actions && typeof actions === 'object') {
-		for (const [name, value] of Object.entries(actions as Record<string, unknown>)) {
-			const inner =
-				value && typeof value === 'object'
-					? Object.keys(value as object)
-							.map(k => `${k}:${typeof (value as Record<string, unknown>)[k] === 'function' ? 'fn' : typeof (value as Record<string, unknown>)[k]}`)
-							.join(',')
-					: typeof value
-			parts.push(`actions.${name}={${inner}}`)
-		}
-	}
-
-	const chunks: string[] = []
-	let current = ''
-	for (const part of parts) {
-		if ((current + part).length > 60) {
-			chunks.push(current)
-			current = ''
-		}
-		current += `${part} `
-	}
-	if (current) chunks.push(current)
-	return chunks
+	return typeof type
 }
 
-function toast(text: string) {
-	try {
-		ToastActionCreators.open('no-delete-confirm-debug', { text, duration: 4500 })
-	} catch {
-		try {
-			ToastActionCreators.open({ key: 'no-delete-confirm-debug', content: text } as never)
-		} catch {}
+// Debug: walks a React element tree and writes one line per element.
+function dump(node: unknown, path: string, depth: number, out: string[]) {
+	if (Array.isArray(node)) {
+		node.forEach((child, i) => dump(child, `${path}[${i}]`, depth, out))
+		return
 	}
+
+	if (!node || typeof node !== 'object' || !('props' in node)) {
+		out.push(`${path}=${label(node)}`)
+		return
+	}
+
+	const element = node as { type?: unknown; props?: AlertProps }
+	const props = element.props ?? {}
+	const items = Object.keys(props)
+		.filter(name => name !== 'children')
+		.map(name => `${name}:${label(props[name])}`)
+	out.push(`${path} <${typeName(element.type)}> ${items.join(' ')}`)
+
+	if (depth < 5 && props.children !== undefined) dump(props.children, `${path}.c`, depth + 1, out)
 }
 
 export default plugin({
 	start({ cleanup }) {
 		cleanup(
 			instead(AlertActionCreators, 'openAlert', (args, original) => {
-				const [key, alert] = args
+				const [key, alert, ...rest] = args
 				const props = (alert as { props?: AlertProps } | null)?.props
 
 				if (props && isDeleteMessageAlert(key, props)) {
-					const confirm = findConfirm(props)
-					if (confirm) {
-						confirm()
-						return
-					}
+					const lines: string[] = []
+					dump(props.actions, 'actions', 0, lines)
 
-					// No confirm found: show the props, one piece at a time.
-					const chunks = describe(props)
-					chunks.forEach((chunk, i) => {
-						setTimeout(() => toast(`${i + 1}/${chunks.length} ${chunk}`), i * 5000)
-					})
+					// Shows the dump in place of the popup text. Yes and No still work as normal.
+					const shown = { ...(alert as object), props: { ...props, content: lines.join('\n').slice(0, 900) } }
+					return original(key, shown as never, ...rest)
 				}
 
 				return original(...args)
