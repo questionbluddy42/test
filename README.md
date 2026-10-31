@@ -5,6 +5,7 @@ Small plugins for [Valenced](https://github.com/Valenced/valenced).
 ## Plugins
 
 - **No Reply Ping**: replies don't ping the person by default. Turn the ping on per reply with the @ button.
+- **No Delete Confirm**: deleting a message skips the "Are you sure?" popup and deletes it straight away.
 
 ## Install
 

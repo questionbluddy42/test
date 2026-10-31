@@ -1,0 +1,19 @@
+{
+	"format": 1,
+	"id": "com.questionbluddy42.no-delete-confirm",
+	"name": "No Delete Confirm",
+	"description": "Deleting a message skips the \"Are you sure?\" popup and deletes it straight away.",
+	"author": "questionbluddy42",
+	"version": "1.0.0",
+	"dependencies": {
+		"valenced.api": {
+			"version": ">=1 <2"
+		},
+		"discord": {
+			"version": "*"
+		}
+	},
+	"dist": {
+		"script": "index.js"
+	}
+}
