@@ -115,11 +115,11 @@
       }
     },
     "com.questionbluddy42.role-colors": {
-      "name": "Role Colors",
+      "name": "Role Color Everywhere",
       "description": "Colors names in the typing indicator and mentions in messages with each person's role color.",
       "author": "questionbluddy42",
       "channels": {
-        "latest": "1.2.0"
+        "latest": "1.2.1"
       },
       "versions": {
         "0.1.0": {
@@ -204,6 +204,19 @@
           "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.role-colors@1.2.0.zip",
           "sha256": "8ebf590d24f01bb97d224b9d628537f15ca1e0f325dc01bc2d29132ac5875557",
           "size": 1891,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.2.1": {
+          "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.role-colors@1.2.1.zip",
+          "sha256": "46e0beeb0756d900b9ea31451c89d4170629360cca3bf06b1c5beaf79d93c8e5",
+          "size": 1901,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"
