@@ -1,47 +1,79 @@
 import { ToastActionCreators } from '@valenced/discord/actions'
+import { Stores } from '@valenced/discord/flux'
 import { Clipboard } from '@valenced/externals/react-native-clipboard'
 import { instead } from '@valenced/patcher'
 import { ReactJSXRuntime } from '@valenced/react'
+import { insteadJSX } from '@valenced/react/jsx-runtime'
 
-// Probe version: finds typing and mention components, then copies a report to the clipboard.
+// Probe version 2: reads the typing indicator's output, member data, and mention-like text.
+// Copies a report to the clipboard.
 
-const WANTED = /typing|mention/i
-const MAX_ENTRIES = 60
-
-const seen = new Map<string, string>()
-const decided = new WeakMap<object, string | null>()
+const report = new Map<string, string>()
+const names = new WeakMap<object, string>()
 let timer: ReturnType<typeof setTimeout> | undefined
+let Inner: unknown
+let unpatchInner: (() => boolean) | undefined
 
-function nameOf(type: unknown): string | null {
-	if (!type || (typeof type !== 'function' && typeof type !== 'object')) return null
+function typeName(type: unknown): string {
+	if (typeof type === 'string') return type
+	if (!type || (typeof type !== 'function' && typeof type !== 'object')) return typeof type
 
-	const cached = decided.get(type as object)
+	const cached = names.get(type as object)
 	if (cached !== undefined) return cached
 
 	const named = type as { displayName?: string; name?: string; type?: unknown; render?: unknown }
 	let name = named.displayName || named.name || ''
-	if (!name && named.type) name = nameOf(named.type) ?? ''
+	if (!name && named.type) name = typeName(named.type)
 	if (!name && typeof named.render === 'function') name = (named.render as { name?: string }).name || ''
 
-	const result = WANTED.test(name) ? name : null
-	decided.set(type as object, result)
-	return result
+	names.set(type as object, name || '?')
+	return name || '?'
 }
 
 function label(value: unknown): string {
 	if (typeof value === 'function') return 'fn'
-	if (typeof value === 'string') return `'${value.slice(0, 20)}'`
+	if (typeof value === 'string') return `'${value.slice(0, 24)}'`
 	if (Array.isArray(value)) return `arr${value.length}`
 	if (value && typeof value === 'object') return 'obj'
 	return String(value)
+}
+
+function styleLabel(style: unknown): string {
+	if (Array.isArray(style)) return `arr${style.length}`
+	if (style && typeof style === 'object') {
+		const record = style as Record<string, unknown>
+		const color = typeof record.color === 'string' ? ` color=${record.color}` : ''
+		return `{${Object.keys(record).join(',')}${color}}`
+	}
+	return label(style)
 }
 
 function describe(props: unknown) {
 	if (!props || typeof props !== 'object') return ''
 	const record = props as Record<string, unknown>
 	return Object.keys(record)
-		.map(name => `${name}:${label(record[name])}`)
+		.filter(name => name !== 'children')
+		.map(name => `${name}:${name === 'style' ? styleLabel(record[name]) : label(record[name])}`)
 		.join(' ')
+}
+
+// Walks a rendered React element tree, one line per element.
+function dump(node: unknown, path: string, depth: number, out: string[]) {
+	if (Array.isArray(node)) {
+		node.forEach((child, i) => dump(child, `${path}[${i}]`, depth, out))
+		return
+	}
+
+	if (!node || typeof node !== 'object' || !('props' in node)) {
+		out.push(`${path}=${label(node)}`)
+		return
+	}
+
+	const element = node as { type?: unknown; props?: Record<string, unknown> }
+	const props = element.props ?? {}
+	out.push(`${path} <${typeName(element.type)}> ${describe(props)}`)
+
+	if (depth < 7 && props.children !== undefined) dump(props.children, `${path}.c`, depth + 1, out)
 }
 
 function toast(text: string) {
@@ -54,21 +86,78 @@ function toast(text: string) {
 	}
 }
 
-function scheduleCopy() {
+function add(key: string, text: string) {
+	if (report.has(key) || report.size >= 40) return
+	report.set(key, text)
+
 	if (timer) clearTimeout(timer)
 	timer = setTimeout(() => {
-		const report = [...seen.entries()].map(([name, props]) => `${name} | ${props}`).join('\n')
-		Clipboard.setString(report)
-		toast(`Probe copied ${seen.size} entries. Paste it in the chat.`)
-	}, 5000)
+		Clipboard.setString([...report.entries()].map(([k, v]) => `## ${k}\n${v}`).join('\n'))
+		toast(`Probe copied ${report.size} entries. Paste it in the chat.`)
+	}, 6000)
+}
+
+// Reads a member from the guild member store, to find which field holds the role color.
+function memberInfo(guildId: unknown, userId: unknown) {
+	const store = (Stores as Record<string, unknown>).GuildMemberStore as
+		| { getMember?: (guild: unknown, user: unknown) => Record<string, unknown> | null }
+		| undefined
+	if (!store?.getMember) return 'GuildMemberStore: no getMember'
+
+	const member = store.getMember(guildId, userId)
+	if (!member) return 'member: null'
+
+	return `member keys: ${Object.keys(member).join(',')} | colorString=${label(member.colorString)} | color=${label(member.color)}`
+}
+
+function renderInner(props: unknown) {
+	const component = Inner as {
+		type?: (props: unknown) => unknown
+		render?: (props: unknown, ref: unknown) => unknown
+	}
+	if (typeof Inner === 'function') return (Inner as (props: unknown) => unknown)(props)
+	if (typeof component?.type === 'function') return component.type(props)
+	if (typeof component?.render === 'function') return component.render(props, null)
+	return null
+}
+
+// Renders the original indicator unchanged, and reports what it produced.
+function TypingIndicatorProbe(props: unknown) {
+	const tree = renderInner(props)
+
+	try {
+		const p = props as { typingUserIds?: unknown[]; channel?: { guild_id?: unknown } }
+		const lines: string[] = []
+		dump(tree, 'tree', 0, lines)
+		add('typing output', lines.join('\n'))
+
+		const guildId = p.channel?.guild_id
+		const userId = p.typingUserIds?.[0]
+		add('typing member', `guild=${label(guildId)} user=${label(userId)} | ${memberInfo(guildId, userId)}`)
+	} catch (error) {
+		add('typing error', String(error))
+	}
+
+	return tree
 }
 
 function watch(type: unknown, props: unknown) {
 	try {
-		const name = nameOf(type)
-		if (!name || seen.has(name) || seen.size >= MAX_ENTRIES) return
-		seen.set(name, describe(props))
-		scheduleCopy()
+		const name = typeName(type)
+
+		if (!Inner && name === 'TypingIndicatorInner') {
+			Inner = type
+			unpatchInner = insteadJSX(type as never, (args, jsx) =>
+				jsx(TypingIndicatorProbe as never, args[1] as never, args[2]),
+			)
+			return
+		}
+
+		// Mention-like text starts with @.
+		const children = (props as { children?: unknown } | null)?.children
+		const first = Array.isArray(children) ? children[0] : children
+		if (typeof first === 'string' && first.startsWith('@'))
+			add(`mention-like <${name}>`, `${describe(props)} text=${label(first)}`)
 	} catch {}
 }
 
@@ -88,6 +177,7 @@ export default plugin({
 		)
 		cleanup(() => {
 			if (timer) clearTimeout(timer)
+			unpatchInner?.()
 		})
 	},
 })
