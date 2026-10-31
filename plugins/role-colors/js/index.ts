@@ -1,9 +1,9 @@
 import { Stores } from '@valenced/discord/flux'
-import { instead } from '@valenced/patcher'
-import { ReactJSXRuntime } from '@valenced/react'
+import { before, instead } from '@valenced/patcher'
+import { ReactJSXRuntime, ReactNative } from '@valenced/react'
 import { insteadJSX } from '@valenced/react/jsx-runtime'
 
-// Colors names in the typing indicator with each person's role color.
+// Colors names in the typing indicator and mentions in messages with each person's role color.
 
 type Props = Record<string, unknown>
 type Element = { type?: unknown; props: Props }
@@ -141,6 +141,82 @@ function TypingIndicatorColored(props: unknown) {
 	}
 }
 
+interface MessageData {
+	channelId?: unknown
+	shouldShowRoleOnName?: boolean
+	content?: unknown
+	referencedMessage?: { message?: MessageData }
+}
+
+interface ChannelStore {
+	getChannel?: (channelId: unknown) => { guild_id?: unknown } | null | undefined
+}
+
+// Walks a message's content, coloring every user mention in place.
+function colorMentionsIn(node: unknown, guildId: unknown, depth = 0) {
+	if (!node || typeof node !== 'object' || depth > 12) return
+
+	if (Array.isArray(node)) {
+		for (const child of node) colorMentionsIn(child, guildId, depth + 1)
+		return
+	}
+
+	const component = node as Record<string, unknown>
+	if (component.type === 'mention' && typeof component.userId === 'string') {
+		const color = roleColor(guildId, component.userId)
+		if (color && /^#[0-9a-f]{6}$/i.test(color)) {
+			const value = parseInt(color.slice(1), 16)
+			component.roleColor = value
+			component.color = value
+			component.colorString = color
+		}
+	}
+
+	colorMentionsIn(component.content, guildId, depth + 1)
+	colorMentionsIn(component.items, guildId, depth + 1)
+}
+
+function colorRow(row: unknown) {
+	const message = (row as { message?: MessageData } | null)?.message
+	if (!message) return
+
+	const channel = (Stores.ChannelStore as unknown as ChannelStore | undefined)?.getChannel?.(message.channelId)
+	const guildId = channel?.guild_id
+	if (!guildId) return
+
+	message.shouldShowRoleOnName = true
+	colorMentionsIn(message.content, guildId)
+
+	const referenced = message.referencedMessage?.message
+	if (referenced) {
+		referenced.shouldShowRoleOnName = true
+		colorMentionsIn(referenced.content, guildId)
+	}
+}
+
+// Discord's chat list is drawn natively and gets its rows as JSON.
+// Editing that JSON before it is sent is the only place mentions can be colored.
+function patchMentions(cleanup: (callback: () => unknown) => unknown) {
+	const modules = (ReactNative as unknown as { NativeModules?: Record<string, unknown> }).NativeModules
+	const manager = modules?.DCDChatManager as Record<string, unknown> | undefined
+	if (!manager || typeof manager.updateRows !== 'function') return
+
+	cleanup(
+		before(manager as never, 'updateRows' as never, ((args: unknown[]) => {
+			try {
+				const rows = JSON.parse(args[1] as string)
+				if (!Array.isArray(rows)) return args
+
+				for (const row of rows) colorRow(row)
+				return [args[0], JSON.stringify(rows), ...args.slice(2)]
+			} catch {
+				// Leave the rows as they are, so messages still load.
+				return args
+			}
+		}) as never),
+	)
+}
+
 // Finds the typing indicator component the first time it is drawn.
 function watch(type: unknown) {
 	if (Inner || typeName(type) !== 'TypingIndicatorInner') return
@@ -151,6 +227,8 @@ function watch(type: unknown) {
 
 export default plugin({
 	start({ cleanup }) {
+		patchMentions(cleanup)
+
 		cleanup(
 			instead(ReactJSXRuntime, 'jsx', (args, original) => {
 				watch(args[0])
