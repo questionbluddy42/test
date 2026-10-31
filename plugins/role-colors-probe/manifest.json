@@ -1,0 +1,19 @@
+{
+	"format": 1,
+	"id": "com.questionbluddy42.role-colors-probe",
+	"name": "Role Colors Probe",
+	"description": "Temporary. Finds how mentions are drawn and copies a report to the clipboard.",
+	"author": "questionbluddy42",
+	"version": "0.1.0",
+	"dependencies": {
+		"valenced.api": {
+			"version": ">=1 <2"
+		},
+		"discord": {
+			"version": "*"
+		}
+	},
+	"dist": {
+		"script": "index.js"
+	}
+}
