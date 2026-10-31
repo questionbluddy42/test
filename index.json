@@ -8,7 +8,7 @@
       "description": "Deleting a message skips the \"Are you sure?\" popup and deletes it straight away.",
       "author": "questionbluddy42",
       "channels": {
-        "latest": "1.0.1"
+        "latest": "1.0.2"
       },
       "versions": {
         "1.0.0": {
@@ -28,6 +28,19 @@
           "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.no-delete-confirm@1.0.1.zip",
           "sha256": "94d5a9c1001cc1d110976af6e2db40a443f53935dd35da7a6d446a83bde66e9a",
           "size": 890,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.0.2": {
+          "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.no-delete-confirm@1.0.2.zip",
+          "sha256": "8b90370b329b136ad6ecf3756242089b52eab6f90be6bd17cb741b066a4948a4",
+          "size": 1057,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"
