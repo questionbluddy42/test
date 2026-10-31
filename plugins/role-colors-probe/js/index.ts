@@ -1,7 +1,7 @@
 import { ToastActionCreators } from '@valenced/discord/actions'
 import { Clipboard } from '@valenced/externals/react-native-clipboard'
 import { waitForModules } from '@valenced/modules/finders'
-import { withProps } from '@valenced/modules/finders/filters'
+import { createFilterGenerator, withProps } from '@valenced/modules/finders/filters'
 import { instead } from '@valenced/patcher'
 
 // Temporary probe: records what Discord's mention functions receive and return.
@@ -68,10 +68,10 @@ function add(key: string, text: string) {
 }
 
 // Records the first few calls of one function: its arguments and what it returned.
-function spy(target: Record<string, unknown>, name: string) {
+function spy(target: Record<string, unknown>, name: string, id: number) {
 	const descriptor = Object.getOwnPropertyDescriptor(target, name)
 	add(
-		`status ${name}`,
+		`status ${name} #${id}`,
 		`module found | descriptor: ${descriptor ? `configurable=${descriptor.configurable} writable=${descriptor.writable} getter=${typeof descriptor.get}` : 'none (inherited)'}`,
 	)
 
@@ -80,11 +80,11 @@ function spy(target: Record<string, unknown>, name: string) {
 			const result = original(...args)
 
 			try {
-				const seen = counts.get(name) ?? 0
+				const seen = counts.get(`${name}#${id}`) ?? 0
 				if (seen < 2) {
-					counts.set(name, seen + 1)
+					counts.set(`${name}#${id}`, seen + 1)
 					add(
-						`${name} call ${seen + 1}`,
+						`${name} #${id} call ${seen + 1}`,
 						`args: ${args.map(arg => shape(arg, 3)).join(' | ')}\nresult: ${shape(result, 3)}`,
 					)
 				}
@@ -93,21 +93,45 @@ function spy(target: Record<string, unknown>, name: string) {
 			return result
 		}) as never)
 	} catch (error) {
-		add(`status ${name} patch error`, String(error))
+		add(`status ${name} #${id} patch error`, String(error))
 	}
 }
+
+// Matches modules whose default export has the property.
+const withDefaultProp = createFilterGenerator<[name: string]>(
+	([name], _id, exports) => {
+		const fallback = (exports as { default?: unknown } | null)?.default
+		return !!fallback && (typeof fallback === 'object' || typeof fallback === 'function') && name in fallback
+	},
+	([name]) => `role-colors-probe.default(${name})`,
+)
 
 export default plugin({
 	// Runs early, so the functions are patched before Discord's other code copies them.
 	preInit({ cleanup }) {
-		add('status', 'probe loaded in preInit')
+		add('status', 'probe 0.6 loaded in preInit')
 
-		const watched = ['hydrateUserMention', 'plainMentionRenderer']
+		const topLevel = [
+			'hydrateRoleMention',
+			'hydrateCommandMention',
+			'inlineChannelMentionReact',
+			'createFetchingGameMentionRule',
+		]
+		const underDefault = ['combineAndInjectMentionRule', 'channelMention', 'gameMention']
 
-		for (const name of watched) {
+		for (const name of topLevel) {
 			cleanup(
-				waitForModules(withProps<Record<string, unknown>>(name), exports => {
-					if (typeof exports[name] === 'function') spy(exports, name)
+				waitForModules(withProps<Record<string, unknown>>(name), (exports, id) => {
+					if (typeof exports[name] === 'function') spy(exports, name, id)
+				}),
+			)
+		}
+
+		for (const name of underDefault) {
+			cleanup(
+				waitForModules(withDefaultProp(name), (exports, id) => {
+					const fallback = (exports as { default: Record<string, unknown> }).default
+					if (typeof fallback[name] === 'function') spy(fallback, `default.${name}`.replace('default.', ''), id)
 				}),
 			)
 		}
