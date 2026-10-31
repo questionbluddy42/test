@@ -1,10 +1,10 @@
 {
 	"format": 1,
 	"id": "com.questionbluddy42.role-colors",
-	"name": "Role Colors",
+	"name": "Role Color Everywhere",
 	"description": "Colors names in the typing indicator and mentions in messages with each person's role color.",
 	"author": "questionbluddy42",
-	"version": "1.2.0",
+	"version": "1.2.1",
 	"dependencies": {
 		"valenced.api": {
 			"version": ">=1 <2"
