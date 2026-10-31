@@ -4,7 +4,7 @@
 	"name": "No Delete Confirm",
 	"description": "Deleting a message skips the \"Are you sure?\" popup and deletes it straight away.",
 	"author": "questionbluddy42",
-	"version": "1.0.4",
+	"version": "1.0.5",
 	"dependencies": {
 		"valenced.api": {
 			"version": ">=1 <2"
