@@ -1,0 +1,30 @@
+{
+  "format": 1,
+  "name": "My Plugin Repository",
+  "description": "Example plugin repository from the Valenced plugin template.",
+  "plugins": {
+    "com.amoggoamogger.no-reply-ping": {
+      "name": "No Reply Ping",
+      "description": "Replies don't ping the person by default. Turn the ping on per reply with the @ button.",
+      "author": "amoggoamogger",
+      "channels": {
+        "latest": "1.0.0"
+      },
+      "versions": {
+        "1.0.0": {
+          "url": "https://amoggoamogger.github.io/test/pool/com.amoggoamogger.no-reply-ping@1.0.0.zip",
+          "sha256": "4fec9af2db7e7dfae81c5b9bfcb9b2c415bab74b1112b2df7b2c97ae6fa1613a",
+          "size": 659,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        }
+      }
+    }
+  }
+}
