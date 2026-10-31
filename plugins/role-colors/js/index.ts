@@ -1,4 +1,6 @@
+import { ToastActionCreators } from '@valenced/discord/actions'
 import { Stores } from '@valenced/discord/flux'
+import { Clipboard } from '@valenced/externals/react-native-clipboard'
 import { before, instead } from '@valenced/patcher'
 import { ReactJSXRuntime, ReactNative } from '@valenced/react'
 import { insteadJSX } from '@valenced/react/jsx-runtime'
@@ -152,6 +154,57 @@ interface ChannelStore {
 	getChannel?: (channelId: unknown) => { guild_id?: unknown } | null | undefined
 }
 
+// Temporary diagnostics, removed once mentions work. Copies one report to the clipboard.
+const diag = {
+	manager: 'not checked',
+	updateRows: 'not checked',
+	nativeKeys: '',
+	channelStore: '',
+	calls: 0,
+	firstArgs: '',
+	rows: 0,
+	rowsNoGuild: 0,
+	mentions: 0,
+	colored: 0,
+	types: new Set<string>(),
+	samples: [] as string[],
+	errors: [] as string[],
+}
+let diagTimer: ReturnType<typeof setTimeout> | undefined
+
+function toast(text: string) {
+	try {
+		ToastActionCreators.open('role-colors-report', { text, duration: 5000 })
+	} catch {
+		try {
+			ToastActionCreators.open({ key: 'role-colors-report', content: text } as never)
+		} catch {}
+	}
+}
+
+function flushDiag() {
+	const lines = [
+		'role colors 1.1.1',
+		`DCDChatManager: ${diag.manager} | updateRows: ${diag.updateRows}`,
+		`native modules like chat: ${diag.nativeKeys}`,
+		`ChannelStore: ${diag.channelStore}`,
+		`updateRows calls: ${diag.calls}`,
+		`first call args: ${diag.firstArgs}`,
+		`rows: ${diag.rows} (no guild: ${diag.rowsNoGuild})`,
+		`mentions: ${diag.mentions} (colored: ${diag.colored})`,
+		`component types: ${[...diag.types].join(',')}`,
+		...diag.samples.map((sample, i) => `mention sample ${i + 1}: ${sample}`),
+		...diag.errors.map(error => `error: ${error}`),
+	]
+	Clipboard.setString(lines.join('\n'))
+	toast('Role Colors report copied. Paste it in the chat.')
+}
+
+function scheduleDiag(delay: number) {
+	if (diagTimer) clearTimeout(diagTimer)
+	diagTimer = setTimeout(flushDiag, delay)
+}
+
 // Walks a message's content, coloring every user mention in place.
 function colorMentionsIn(node: unknown, guildId: unknown, depth = 0) {
 	if (!node || typeof node !== 'object' || depth > 12) return
@@ -162,13 +215,22 @@ function colorMentionsIn(node: unknown, guildId: unknown, depth = 0) {
 	}
 
 	const component = node as Record<string, unknown>
-	if (component.type === 'mention' && typeof component.userId === 'string') {
-		const color = roleColor(guildId, component.userId)
+	if (typeof component.type === 'string' && diag.types.size < 40) diag.types.add(component.type)
+
+	if (component.type === 'mention') {
+		diag.mentions++
+		const userId = typeof component.userId === 'string' ? component.userId : undefined
+		const color = userId ? roleColor(guildId, userId) : undefined
+
+		if (diag.samples.length < 3)
+			diag.samples.push(`${JSON.stringify(component).slice(0, 240)} | role color: ${color}`)
+
 		if (color && /^#[0-9a-f]{6}$/i.test(color)) {
 			const value = parseInt(color.slice(1), 16)
 			component.roleColor = value
 			component.color = value
 			component.colorString = color
+			diag.colored++
 		}
 	}
 
@@ -177,12 +239,16 @@ function colorMentionsIn(node: unknown, guildId: unknown, depth = 0) {
 }
 
 function colorRow(row: unknown) {
+	diag.rows++
 	const message = (row as { message?: MessageData } | null)?.message
 	if (!message) return
 
 	const channel = (Stores.ChannelStore as unknown as ChannelStore | undefined)?.getChannel?.(message.channelId)
 	const guildId = channel?.guild_id
-	if (!guildId) return
+	if (!guildId) {
+		diag.rowsNoGuild++
+		return
+	}
 
 	message.shouldShowRoleOnName = true
 	colorMentionsIn(message.content, guildId)
@@ -199,18 +265,39 @@ function colorRow(row: unknown) {
 function patchMentions(cleanup: (callback: () => unknown) => unknown) {
 	const modules = (ReactNative as unknown as { NativeModules?: Record<string, unknown> }).NativeModules
 	const manager = modules?.DCDChatManager as Record<string, unknown> | undefined
+
+	diag.manager = manager ? 'found' : 'MISSING'
+	diag.updateRows = typeof manager?.updateRows
+	diag.channelStore = typeof Stores.ChannelStore
+	try {
+		diag.nativeKeys = Object.keys(modules ?? {})
+			.filter(key => /chat|row|dcd|message/i.test(key))
+			.join(',')
+	} catch {}
+
+	scheduleDiag(12000)
+	cleanup(() => {
+		if (diagTimer) clearTimeout(diagTimer)
+	})
+
 	if (!manager || typeof manager.updateRows !== 'function') return
 
 	cleanup(
 		before(manager as never, 'updateRows' as never, ((args: unknown[]) => {
 			try {
+				diag.calls++
+				if (diag.calls === 1)
+					diag.firstArgs = `n=${args.length} ${args.map(arg => (typeof arg === 'string' ? `string(${arg.length})` : typeof arg)).join(',')}`
+				scheduleDiag(6000)
+
 				const rows = JSON.parse(args[1] as string)
 				if (!Array.isArray(rows)) return args
 
 				for (const row of rows) colorRow(row)
 				return [args[0], JSON.stringify(rows), ...args.slice(2)]
-			} catch {
+			} catch (error) {
 				// Leave the rows as they are, so messages still load.
+				if (diag.errors.length < 3) diag.errors.push(String(error).slice(0, 120))
 				return args
 			}
 		}) as never),
