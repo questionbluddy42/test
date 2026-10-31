@@ -6,7 +6,7 @@ Small plugins for [Valenced](https://github.com/Valenced/valenced).
 
 - **No Reply Ping**: replies don't ping the person by default. Turn the ping on per reply with the @ button.
 - **No Delete Confirm**: deleting a message skips the "Are you sure?" popup and deletes it straight away.
-- **Role Colors** (in progress): role colors on the typing indicator and mentions.
+- **Role Colors**: names in the typing indicator use each person's role color.
 
 ## Install
 

@@ -1,22 +1,33 @@
-import { ToastActionCreators } from '@valenced/discord/actions'
 import { Stores } from '@valenced/discord/flux'
-import { Clipboard } from '@valenced/externals/react-native-clipboard'
 import { instead } from '@valenced/patcher'
 import { ReactJSXRuntime } from '@valenced/react'
 import { insteadJSX } from '@valenced/react/jsx-runtime'
 
-// Probe version 2: reads the typing indicator's output, member data, and mention-like text.
-// Copies a report to the clipboard.
+// Colors names in the typing indicator with each person's role color.
 
-const report = new Map<string, string>()
+type Props = Record<string, unknown>
+type Element = { type?: unknown; props: Props }
+
+interface TypingProps {
+	typingUserIds?: unknown[]
+	channel?: { guild_id?: unknown }
+}
+
+interface MemberStore {
+	getMember?: (guildId: unknown, userId: unknown) => { nick?: unknown; colorString?: unknown } | null | undefined
+}
+
+interface UserStore {
+	getUser?: (userId: unknown) => { globalName?: unknown; global_name?: unknown; username?: unknown } | null | undefined
+}
+
 const names = new WeakMap<object, string>()
-let timer: ReturnType<typeof setTimeout> | undefined
 let Inner: unknown
 let unpatchInner: (() => boolean) | undefined
 
 function typeName(type: unknown): string {
 	if (typeof type === 'string') return type
-	if (!type || (typeof type !== 'function' && typeof type !== 'object')) return typeof type
+	if (!type || (typeof type !== 'function' && typeof type !== 'object')) return ''
 
 	const cached = names.get(type as object)
 	if (cached !== undefined) return cached
@@ -26,88 +37,83 @@ function typeName(type: unknown): string {
 	if (!name && named.type) name = typeName(named.type)
 	if (!name && typeof named.render === 'function') name = (named.render as { name?: string }).name || ''
 
-	names.set(type as object, name || '?')
-	return name || '?'
+	names.set(type as object, name)
+	return name
 }
 
-function label(value: unknown): string {
-	if (typeof value === 'function') return 'fn'
-	if (typeof value === 'string') return `'${value.slice(0, 24)}'`
-	if (Array.isArray(value)) return `arr${value.length}`
-	if (value && typeof value === 'object') return 'obj'
-	return String(value)
+function isElement(node: unknown): node is Element {
+	return !!node && typeof node === 'object' && 'props' in node && !!(node as Element).props
 }
 
-function styleLabel(style: unknown): string {
-	if (Array.isArray(style)) return `arr${style.length}`
-	if (style && typeof style === 'object') {
-		const record = style as Record<string, unknown>
-		const color = typeof record.color === 'string' ? ` color=${record.color}` : ''
-		return `{${Object.keys(record).join(',')}${color}}`
-	}
-	return label(style)
-}
-
-function describe(props: unknown) {
-	if (!props || typeof props !== 'object') return ''
-	const record = props as Record<string, unknown>
-	return Object.keys(record)
-		.filter(name => name !== 'children')
-		.map(name => `${name}:${name === 'style' ? styleLabel(record[name]) : label(record[name])}`)
-		.join(' ')
-}
-
-// Walks a rendered React element tree, one line per element.
-function dump(node: unknown, path: string, depth: number, out: string[]) {
+// First string found inside an element, which is the displayed name.
+function textOf(node: unknown): string | undefined {
+	if (typeof node === 'string') return node
 	if (Array.isArray(node)) {
-		node.forEach((child, i) => dump(child, `${path}[${i}]`, depth, out))
+		for (const child of node) {
+			const text = textOf(child)
+			if (text !== undefined) return text
+		}
 		return
 	}
+	if (isElement(node)) return textOf(node.props.children)
+}
 
-	if (!node || typeof node !== 'object' || !('props' in node)) {
-		out.push(`${path}=${label(node)}`)
-		return
+function roleColor(guildId: unknown, userId: unknown) {
+	const member = (Stores.GuildMemberStore as unknown as MemberStore | undefined)?.getMember?.(guildId, userId)
+	const color = member?.colorString
+	return typeof color === 'string' && color ? color : undefined
+}
+
+// Display names a person can appear under in the indicator.
+function namesOf(guildId: unknown, userId: unknown) {
+	const member = (Stores.GuildMemberStore as unknown as MemberStore | undefined)?.getMember?.(guildId, userId)
+	const user = (Stores.UserStore as unknown as UserStore | undefined)?.getUser?.(userId)
+	return [member?.nick, user?.globalName, user?.global_name, user?.username].filter(
+		(name): name is string => typeof name === 'string' && name.length > 0,
+	)
+}
+
+function paint(element: Element, color: string): Element {
+	return { ...element, props: { ...element.props, style: [element.props.style, { color }] } }
+}
+
+function sameItems(a: unknown[], b: unknown[]) {
+	return a.length === b.length && a.every((item, i) => item === b[i])
+}
+
+// Rebuilds the tree, painting name elements inside the Text that holds them.
+function transform(node: unknown, guildId: unknown, ids: unknown[]): unknown {
+	if (Array.isArray(node)) {
+		const next = node.map(child => transform(child, guildId, ids))
+		return sameItems(node, next) ? node : next
 	}
 
-	const element = node as { type?: unknown; props?: Record<string, unknown> }
-	const props = element.props ?? {}
-	out.push(`${path} <${typeName(element.type)}> ${describe(props)}`)
+	if (!isElement(node)) return node
 
-	if (depth < 7 && props.children !== undefined) dump(props.children, `${path}.c`, depth + 1, out)
-}
+	const children = node.props.children
+	if (typeName(node.type) === 'Text' && children !== undefined) {
+		const list = Array.isArray(children) ? children : [children]
+		const elements = list.filter(isElement)
 
-function toast(text: string) {
-	try {
-		ToastActionCreators.open('role-colors-probe', { text, duration: 5000 })
-	} catch {
-		try {
-			ToastActionCreators.open({ key: 'role-colors-probe', content: text } as never)
-		} catch {}
+		if (elements.length > 0 && elements.length <= ids.length) {
+			const painted = list.map(child => {
+				if (!isElement(child)) return child
+
+				const text = textOf(child)
+				let id = ids.find(userId => text !== undefined && namesOf(guildId, userId).includes(text))
+				if (id === undefined && elements.length === ids.length) id = ids[elements.indexOf(child)]
+
+				const color = id === undefined ? undefined : roleColor(guildId, id)
+				return color ? paint(child, color) : child
+			})
+
+			return { ...node, props: { ...node.props, children: painted } }
+		}
 	}
-}
 
-function add(key: string, text: string) {
-	if (report.has(key) || report.size >= 40) return
-	report.set(key, text)
-
-	if (timer) clearTimeout(timer)
-	timer = setTimeout(() => {
-		Clipboard.setString([...report.entries()].map(([k, v]) => `## ${k}\n${v}`).join('\n'))
-		toast(`Probe copied ${report.size} entries. Paste it in the chat.`)
-	}, 6000)
-}
-
-// Reads a member from the guild member store, to find which field holds the role color.
-function memberInfo(guildId: unknown, userId: unknown) {
-	const store = (Stores as Record<string, unknown>).GuildMemberStore as
-		| { getMember?: (guild: unknown, user: unknown) => Record<string, unknown> | null }
-		| undefined
-	if (!store?.getMember) return 'GuildMemberStore: no getMember'
-
-	const member = store.getMember(guildId, userId)
-	if (!member) return 'member: null'
-
-	return `member keys: ${Object.keys(member).join(',')} | colorString=${label(member.colorString)} | color=${label(member.color)}`
+	if (children === undefined) return node
+	const next = transform(children, guildId, ids)
+	return next === children ? node : { ...node, props: { ...node.props, children: next } }
 }
 
 function renderInner(props: unknown) {
@@ -121,63 +127,42 @@ function renderInner(props: unknown) {
 	return null
 }
 
-// Renders the original indicator unchanged, and reports what it produced.
-function TypingIndicatorProbe(props: unknown) {
+function TypingIndicatorColored(props: unknown) {
 	const tree = renderInner(props)
 
 	try {
-		const p = props as { typingUserIds?: unknown[]; channel?: { guild_id?: unknown } }
-		const lines: string[] = []
-		dump(tree, 'tree', 0, lines)
-		add('typing output', lines.join('\n'))
+		const { typingUserIds, channel } = props as TypingProps
+		const guildId = channel?.guild_id
+		if (!guildId || !typingUserIds?.length) return tree
 
-		const guildId = p.channel?.guild_id
-		const userId = p.typingUserIds?.[0]
-		add('typing member', `guild=${label(guildId)} user=${label(userId)} | ${memberInfo(guildId, userId)}`)
-	} catch (error) {
-		add('typing error', String(error))
+		return transform(tree, guildId, typingUserIds)
+	} catch {
+		return tree
 	}
-
-	return tree
 }
 
-function watch(type: unknown, props: unknown) {
-	try {
-		const name = typeName(type)
+// Finds the typing indicator component the first time it is drawn.
+function watch(type: unknown) {
+	if (Inner || typeName(type) !== 'TypingIndicatorInner') return
 
-		if (!Inner && name === 'TypingIndicatorInner') {
-			Inner = type
-			unpatchInner = insteadJSX(type as never, (args, jsx) =>
-				jsx(TypingIndicatorProbe as never, args[1] as never, args[2]),
-			)
-			return
-		}
-
-		// Mention-like text starts with @.
-		const children = (props as { children?: unknown } | null)?.children
-		const first = Array.isArray(children) ? children[0] : children
-		if (typeof first === 'string' && first.startsWith('@'))
-			add(`mention-like <${name}>`, `${describe(props)} text=${label(first)}`)
-	} catch {}
+	Inner = type
+	unpatchInner = insteadJSX(type as never, (args, jsx) => jsx(TypingIndicatorColored as never, args[1] as never, args[2]))
 }
 
 export default plugin({
 	start({ cleanup }) {
 		cleanup(
 			instead(ReactJSXRuntime, 'jsx', (args, original) => {
-				watch(args[0], args[1])
+				watch(args[0])
 				return original(...args)
 			}),
 		)
 		cleanup(
 			instead(ReactJSXRuntime, 'jsxs', (args, original) => {
-				watch(args[0], args[1])
+				watch(args[0])
 				return original(...args)
 			}),
 		)
-		cleanup(() => {
-			if (timer) clearTimeout(timer)
-			unpatchInner?.()
-		})
+		cleanup(() => unpatchInner?.())
 	},
 })

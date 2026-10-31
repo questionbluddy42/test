@@ -2,9 +2,9 @@
 	"format": 1,
 	"id": "com.questionbluddy42.role-colors",
 	"name": "Role Colors",
-	"description": "Shows role colors on the typing indicator and on mentions.",
+	"description": "Colors names in the typing indicator with each person's role color.",
 	"author": "questionbluddy42",
-	"version": "0.2.0",
+	"version": "1.0.0",
 	"dependencies": {
 		"valenced.api": {
 			"version": ">=1 <2"
