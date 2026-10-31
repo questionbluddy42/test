@@ -1,6 +1,4 @@
-import { ToastActionCreators } from '@valenced/discord/actions'
 import { Stores } from '@valenced/discord/flux'
-import { Clipboard } from '@valenced/externals/react-native-clipboard'
 import { getModules } from '@valenced/modules/finders'
 import { withName } from '@valenced/modules/finders/filters'
 import { getNativeModule } from '@valenced/modules/native'
@@ -24,6 +22,17 @@ interface MemberStore {
 
 interface UserStore {
 	getUser?: (userId: unknown) => { globalName?: unknown; global_name?: unknown; username?: unknown } | null | undefined
+}
+
+interface ChannelStore {
+	getChannel?: (channelId: unknown) => { guild_id?: unknown } | null | undefined
+}
+
+interface MessageData {
+	channelId?: unknown
+	shouldShowRoleOnName?: boolean
+	content?: unknown
+	referencedMessage?: { message?: MessageData }
 }
 
 const names = new WeakMap<object, string>()
@@ -146,69 +155,12 @@ function TypingIndicatorColored(props: unknown) {
 	}
 }
 
-interface MessageData {
-	channelId?: unknown
-	shouldShowRoleOnName?: boolean
-	content?: unknown
-	referencedMessage?: { message?: MessageData }
-}
+// Finds the typing indicator component the first time it is drawn.
+function watch(type: unknown) {
+	if (Inner || typeName(type) !== 'TypingIndicatorInner') return
 
-interface ChannelStore {
-	getChannel?: (channelId: unknown) => { guild_id?: unknown } | null | undefined
-}
-
-// Temporary diagnostics, removed once mentions work. Copies one report to the clipboard.
-const diag = {
-	routes: [] as string[],
-	proxyKeys: '',
-	generateCalls: 0,
-	firstRow: '',
-	rowManagerCallback: false,
-	channelStore: '',
-	calls: 0,
-	firstArgs: '',
-	rows: 0,
-	rowsNoGuild: 0,
-	mentions: 0,
-	colored: 0,
-	types: new Set<string>(),
-	samples: [] as string[],
-	errors: [] as string[],
-}
-let diagTimer: ReturnType<typeof setTimeout> | undefined
-
-function toast(text: string) {
-	try {
-		ToastActionCreators.open('role-colors-report', { text, duration: 5000 })
-	} catch {
-		try {
-			ToastActionCreators.open({ key: 'role-colors-report', content: text } as never)
-		} catch {}
-	}
-}
-
-function flushDiag() {
-	const lines = [
-		'role colors 1.1.2',
-		...diag.routes.map(route => `route: ${route}`),
-		`RowManager callback fired: ${diag.rowManagerCallback}`,
-		`native proxy keys like chat: ${diag.proxyKeys}`,
-		`ChannelStore: ${diag.channelStore}`,
-		`updateRows calls: ${diag.calls} | first call args: ${diag.firstArgs}`,
-		`RowManager.generate calls: ${diag.generateCalls} | first row keys: ${diag.firstRow}`,
-		`rows: ${diag.rows} (no guild: ${diag.rowsNoGuild})`,
-		`mentions: ${diag.mentions} (colored: ${diag.colored})`,
-		`component types: ${[...diag.types].join(',')}`,
-		...diag.samples.map((sample, i) => `mention sample ${i + 1}: ${sample}`),
-		...diag.errors.map(error => `error: ${error}`),
-	]
-	Clipboard.setString(lines.join('\n'))
-	toast('Role Colors report copied. Paste it in the chat.')
-}
-
-function scheduleDiag(delay: number) {
-	if (diagTimer) clearTimeout(diagTimer)
-	diagTimer = setTimeout(flushDiag, delay)
+	Inner = type
+	unpatchInner = insteadJSX(type as never, (args, jsx) => jsx(TypingIndicatorColored as never, args[1] as never, args[2]))
 }
 
 // Walks a message's content, coloring every user mention in place.
@@ -221,22 +173,13 @@ function colorMentionsIn(node: unknown, guildId: unknown, depth = 0) {
 	}
 
 	const component = node as Record<string, unknown>
-	if (typeof component.type === 'string' && diag.types.size < 40) diag.types.add(component.type)
-
-	if (component.type === 'mention') {
-		diag.mentions++
-		const userId = typeof component.userId === 'string' ? component.userId : undefined
-		const color = userId ? roleColor(guildId, userId) : undefined
-
-		if (diag.samples.length < 3)
-			diag.samples.push(`${JSON.stringify(component).slice(0, 240)} | role color: ${color}`)
-
+	if (component.type === 'mention' && typeof component.userId === 'string') {
+		const color = roleColor(guildId, component.userId)
 		if (color && /^#[0-9a-f]{6}$/i.test(color)) {
 			const value = parseInt(color.slice(1), 16)
 			component.roleColor = value
 			component.color = value
 			component.colorString = color
-			diag.colored++
 		}
 	}
 
@@ -245,16 +188,12 @@ function colorMentionsIn(node: unknown, guildId: unknown, depth = 0) {
 }
 
 function colorRow(row: unknown) {
-	diag.rows++
 	const message = (row as { message?: MessageData } | null)?.message
 	if (!message) return
 
 	const channel = (Stores.ChannelStore as unknown as ChannelStore | undefined)?.getChannel?.(message.channelId)
 	const guildId = channel?.guild_id
-	if (!guildId) {
-		diag.rowsNoGuild++
-		return
-	}
+	if (!guildId) return
 
 	message.shouldShowRoleOnName = true
 	colorMentionsIn(message.content, guildId)
@@ -269,69 +208,42 @@ function colorRow(row: unknown) {
 // Discord's chat list is drawn natively. Its rows are built or sent as data before they reach the screen.
 // Editing that data is the only place mentions can be colored. Two routes exist, so both are tried.
 function patchMentions(cleanup: (callback: () => unknown) => unknown) {
-	scheduleDiag(12000)
-	cleanup(() => {
-		if (diagTimer) clearTimeout(diagTimer)
-	})
-
-	diag.channelStore = typeof Stores.ChannelStore
-
-	try {
-		const proxy = (globalThis as unknown as Record<string, unknown>).nativeModuleProxy as Record<string, unknown> | undefined
-		diag.proxyKeys = Object.keys(proxy ?? {})
-			.filter(key => /chat|row|dcd|message|list/i.test(key))
-			.join(',')
-	} catch {}
-
-	// Route 1: rows sent to the native chat module as JSON.
+	// Route 1: rows sent to the native chat module as JSON. Missing on some builds.
 	try {
 		const manager = getNativeModule<Record<string, unknown>>('DCDChatManager')
-		diag.routes.push(`getNativeModule: ${manager ? 'found' : 'null'}, updateRows: ${typeof manager?.updateRows}`)
 
 		if (manager && typeof manager.updateRows === 'function') {
 			cleanup(
 				before(manager as never, 'updateRows' as never, ((args: unknown[]) => {
 					try {
-						diag.calls++
-						if (diag.calls === 1)
-							diag.firstArgs = `n=${args.length} ${args.map(arg => (typeof arg === 'string' ? `string(${arg.length})` : typeof arg)).join(',')}`
-						scheduleDiag(6000)
-
 						const rows = JSON.parse(args[1] as string)
 						if (!Array.isArray(rows)) return args
 
 						for (const row of rows) colorRow(row)
 						return [args[0], JSON.stringify(rows), ...args.slice(2)]
-					} catch (error) {
+					} catch {
 						// Leave the rows as they are, so messages still load.
-						if (diag.errors.length < 3) diag.errors.push(String(error).slice(0, 120))
 						return args
 					}
 				}) as never),
 			)
 		}
-	} catch (error) {
-		diag.routes.push(`getNativeModule: ${String(error).slice(0, 90)}`)
+	} catch {
+		// Module not found on this build.
 	}
 
-	// Route 2: the older row builder, which returns each row as data.
+	// Route 2: the row builder, which returns each row as data.
 	cleanup(
 		getModules(withName<any>('RowManager'), (exports: any) => {
-			diag.rowManagerCallback = true
 			const RowManager = exports?.prototype?.generate ? exports : exports?.default
-			diag.routes.push(`RowManager: found, generate: ${typeof RowManager?.prototype?.generate}`)
 			if (typeof RowManager?.prototype?.generate !== 'function') return
 
 			cleanup(
 				after(RowManager.prototype as never, 'generate' as never, ((row: unknown) => {
 					try {
-						diag.generateCalls++
-						if (diag.generateCalls === 1)
-							diag.firstRow = Object.keys((row ?? {}) as object).join(',')
-						scheduleDiag(6000)
 						colorRow(row)
-					} catch (error) {
-						if (diag.errors.length < 3) diag.errors.push(String(error).slice(0, 120))
+					} catch {
+						// Skip this row.
 					}
 
 					return row
@@ -339,14 +251,6 @@ function patchMentions(cleanup: (callback: () => unknown) => unknown) {
 			)
 		}),
 	)
-}
-
-// Finds the typing indicator component the first time it is drawn.
-function watch(type: unknown) {
-	if (Inner || typeName(type) !== 'TypingIndicatorInner') return
-
-	Inner = type
-	unpatchInner = insteadJSX(type as never, (args, jsx) => jsx(TypingIndicatorColored as never, args[1] as never, args[2]))
 }
 
 export default plugin({
