@@ -119,7 +119,7 @@
       "description": "Colors names in the typing indicator and mentions in messages with each person's role color.",
       "author": "questionbluddy42",
       "channels": {
-        "latest": "1.1.2"
+        "latest": "1.2.0"
       },
       "versions": {
         "0.1.0": {
@@ -191,6 +191,19 @@
           "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.role-colors@1.1.2.zip",
           "sha256": "84231e2e66f2f1cc02e6a803c6cb91de21ed4a4742920c97b391ddee718a1f69",
           "size": 2739,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.2.0": {
+          "url": "https://questionbluddy42.github.io/test/pool/com.questionbluddy42.role-colors@1.2.0.zip",
+          "sha256": "8ebf590d24f01bb97d224b9d628537f15ca1e0f325dc01bc2d29132ac5875557",
+          "size": 1891,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"
